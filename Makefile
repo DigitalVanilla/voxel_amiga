@@ -16,7 +16,8 @@ SAGE_DIR = include/SAGE
 SAGE_SRC_DIR = $(SAGE_DIR)/src
 OBJ_DIR = build/obj
 BIN_DIR = build/bin
-PACKAGE_DIR = build/package/voxel_amiga
+RELEASE_DIR = release
+PACKAGE_DIR = $(RELEASE_DIR)
 TARGET = $(BIN_DIR)/voxel_amiga
 RELEASE_README = README_RELEASE.md
 VOXEL_AMMX_ASMOBJ = $(OBJ_DIR)/voxel_renderer_ammx.o
@@ -113,7 +114,7 @@ convert-maps:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/convert_maps.ps1
 
 clean:
-	rm -rf build
+	rm -rf build $(RELEASE_DIR)
 
 rebuild: clean
 	$(MAKE) all

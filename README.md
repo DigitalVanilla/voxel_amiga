@@ -27,7 +27,7 @@ make rebuild
 ```
 
 The executable is written to `build/bin/voxel_amiga`. A runnable directory,
-including all map assets, is written to `build/package/voxel_amiga`.
+including all map assets, is written to `release/`.
 
 ## Controls
 
