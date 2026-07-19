@@ -18,6 +18,7 @@ OBJ_DIR = build/obj
 BIN_DIR = build/bin
 PACKAGE_DIR = build/package/voxel_amiga
 TARGET = $(BIN_DIR)/voxel_amiga
+RELEASE_README = README_RELEASE.md
 VOXEL_AMMX_ASMOBJ = $(OBJ_DIR)/voxel_renderer_ammx.o
 MAP_INDEXES = 0 1 2 3 4 5 6 7 8 9 \
 	10 11 12 13 14 15 16 17 18 19 \
@@ -101,10 +102,11 @@ $(OBJ_DIR)/sage_%.o: $(SAGE_SRC_DIR)/%.asm | $(OBJ_DIR)
 $(TARGET): $(OBJS) | $(BIN_DIR)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-package: $(TARGET) $(MAP_RUNTIME_FILES)
+package: $(TARGET) $(MAP_RUNTIME_FILES) $(RELEASE_README)
 	rm -rf $(PACKAGE_DIR)
 	$(MKDIR_P) $(PACKAGE_DIR)/maps
 	cp -f $(TARGET) $(PACKAGE_DIR)/
+	cp -f $(RELEASE_README) $(PACKAGE_DIR)/README.md
 	cp -f $(MAP_RUNTIME_FILES) $(PACKAGE_DIR)/maps/
 
 convert-maps:

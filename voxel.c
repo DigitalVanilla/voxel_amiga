@@ -16,8 +16,9 @@
 
 // main layer
 #define MAIN_LAYER 								0
-#define MAIN_LAYER_WIDTH					200
-#define MAIN_LAYER_HEIGHT					120
+#define MAIN_LAYER_PRESET_COUNT    4
+#define MAIN_LAYER_MAX_WIDTH       SCREEN_WIDTH
+#define MAIN_LAYER_MAX_HEIGHT      SCREEN_HEIGHT
 
 #define MAP_N                     1024
 float Z_FAR = 600.0;
@@ -25,9 +26,9 @@ float SCALE_FACTOR = 70.0;
 float START_DELTA_Z = 0.01;
 int HORIZONTAL_DIVISIONS = 1;
 
-#define HEIGHT_MAP_FILENAME	      "maps/map%d.height.raw"
-#define COLOR_MAP_FILENAME	      "maps/map%d.color.raw"
-#define MAP_PALETTE_FILENAME       "maps/map%d.palette.raw"
+#define HEIGHT_MAP_FILENAME	      "PROGDIR:maps/map%d.height.raw"
+#define COLOR_MAP_FILENAME	      "PROGDIR:maps/map%d.color.raw"
+#define MAP_PALETTE_FILENAME       "PROGDIR:maps/map%d.palette.raw"
 #define MAP_DATA_SIZE              ((ULONG)MAP_N * (ULONG)MAP_N)
 #define MAP_PALETTE_SIZE           (SSCR_MAXCOLORS * 3)
 #define MAP_INDEX_MIN              0
@@ -73,11 +74,19 @@ int current_map_bank = 0;
 #define HORIZONTAL_DIVISIONS_MIN     1
 #define HORIZONTAL_DIVISIONS_MAX     4
 
+/* SAGE_EN_M is 41 in this bundled header, but physical Amiga M is raw key 55. */
+#define VOXEL_RAWKEY_M              55
+
 typedef struct {
   UBYTE *height_pixels;
   UBYTE *color_pixels;
   UWORD maximum_height;
 } map_data_t;
+
+typedef struct {
+  UWORD width;
+  UWORD height;
+} layer_size_t;
 
 typedef struct {
   BOOL sage_ready;
@@ -93,6 +102,9 @@ typedef struct {
   UWORD fps_frames;
   UWORD fps_value;
   UBYTE *ammx_column_buffer;
+  UWORD layer_width;
+  UWORD layer_height;
+  UBYTE layer_size_index;
   map_data_t map;
 } demo_state_t;
 
@@ -131,6 +143,13 @@ voxel_render_stats_t render_stats;
 
 BOOL isNightMode = FALSE;
 BOOL isDebugMode = FALSE;
+
+static const layer_size_t layer_sizes[MAIN_LAYER_PRESET_COUNT] = {
+  { 320, 200 },
+  { 200, 120 },
+  { 160, 96 },
+  { 128, 80 }
+};
 
 ULONG daymode_colormap[SSCR_MAXCOLORS];
 ULONG nightmode_colormap[SSCR_MAXCOLORS];
@@ -174,6 +193,8 @@ void visualDebug(void) {
   SAGE_PrintFText(10, 65, "PRESENT:%luus RENDER:080+AMMX",
                   demo.present_time_us);
   SAGE_PrintFText(10, 76, "MAP:%d BANK:%d", file_map_index, current_map_bank);
+  SAGE_PrintFText(10, 87, "LAYER:%lux%lu",
+                  (ULONG)demo.layer_width, (ULONG)demo.layer_height);
 }
 
 // ******************************************
@@ -210,6 +231,53 @@ BOOL isShiftHeld(void) {
   return isKeyHeld(SKEY_EN_SHIFT) || isKeyHeld(SKEY_EN_RSHIFT);
 }
 
+BOOL createVoxelLayer(UBYTE preset_index) {
+  const layer_size_t *size;
+
+  if (preset_index >= MAIN_LAYER_PRESET_COUNT) {
+    return FALSE;
+  }
+
+  size = &layer_sizes[preset_index];
+  if ((size->width & 7) != 0 || (size->height & 7) != 0 ||
+      size->width > SCREEN_WIDTH || size->height > SCREEN_HEIGHT) {
+    logMessage("invalid AMMX layer preset %lu (%lux%lu)\n",
+               (ULONG)preset_index,
+               (ULONG)size->width, (ULONG)size->height);
+    return FALSE;
+  }
+
+  logMessage("creating %lux%lu voxel layer\n",
+             (ULONG)size->width, (ULONG)size->height);
+  demo.layer_ready = FALSE;
+  if (!SAGE_CreateLayer(MAIN_LAYER, size->width, size->height)) {
+    logMessage("layer %lux%lu failed: %s\n",
+               (ULONG)size->width, (ULONG)size->height,
+               SAGE_GetErrorString());
+    return FALSE;
+  }
+
+  demo.layer_ready = TRUE;
+  demo.layer_width = size->width;
+  demo.layer_height = size->height;
+  demo.layer_size_index = preset_index;
+  logMessage("voxel layer ready preset %lu (%lux%lu)\n",
+             (ULONG)preset_index,
+             (ULONG)demo.layer_width, (ULONG)demo.layer_height);
+  return TRUE;
+}
+
+void cycleLayerSize(void) {
+  UBYTE next_preset;
+
+  next_preset = demo.layer_size_index + 1;
+  if (next_preset >= MAIN_LAYER_PRESET_COUNT) {
+    next_preset = 0;
+  }
+  if (!createVoxelLayer(next_preset)) {
+    input.quit_requested = TRUE;
+  }
+}
 int pressedDigit(void) {
   if (wasKeyPressed(SKEY_EN_0)) {
     return 0;
@@ -550,6 +618,10 @@ void handleInputActions(void) {
     }
   }
 
+  if (wasKeyPressed(SKEY_EN_P)) {
+    cycleLayerSize();
+  }
+
   if (wasKeyPressed(SKEY_EN_F1)) {
     selectMapBank(0);
   }
@@ -560,7 +632,7 @@ void handleInputActions(void) {
     selectMapBank(2);
   }
 
-  if (wasKeyPressed(SKEY_EN_M)) {
+  if (wasKeyPressed(VOXEL_RAWKEY_M)) {
     requestMapLoad(file_map_index + (isShiftHeld() ? -1 : 1));
   }
 
@@ -612,8 +684,8 @@ BOOL drawVoxelTerrain(BOOL trace_first_frame) {
   params.camera_sine = sin_angle;
   params.camera_cosine = cos_angle;
   params.camera_roll = player.roll_velocity;
-  params.base_vertical_offset = MAIN_LAYER_HEIGHT / 12.0f;
-  params.roll_scale = MAIN_LAYER_HEIGHT / 6.0f;
+  params.base_vertical_offset = demo.layer_height / 12.0f;
+  params.roll_scale = demo.layer_height / 6.0f;
   params.draw_distance = Z_FAR;
   params.height_scale = SCALE_FACTOR;
   params.depth_delta = START_DELTA_Z;
@@ -639,8 +711,8 @@ BOOL composeFrame(void) {
   }
   if (!SAGE_BlitLayerToScreen(
         MAIN_LAYER,
-        (SCREEN_WIDTH - MAIN_LAYER_WIDTH) / 2,
-        (SCREEN_HEIGHT - MAIN_LAYER_HEIGHT) / 2)) {
+        (SCREEN_WIDTH - demo.layer_width) / 2,
+        (SCREEN_HEIGHT - demo.layer_height) / 2)) {
     return FALSE;
   }
 
@@ -779,15 +851,10 @@ BOOL initDemo(void) {
   demo.screen_ready = TRUE;
   logMessage("screen opened\n");
 
-  logMessage("creating %dx%d voxel layer\n",
-             MAIN_LAYER_WIDTH, MAIN_LAYER_HEIGHT);
-  if (!SAGE_CreateLayer(MAIN_LAYER, MAIN_LAYER_WIDTH, MAIN_LAYER_HEIGHT)) {
+  if (!createVoxelLayer(0)) {
     printf("Unable to create voxel layer: %s\n", SAGE_GetErrorString());
-    logMessage("layer failed: %s\n", SAGE_GetErrorString());
     return FALSE;
   }
-  demo.layer_ready = TRUE;
-  logMessage("voxel layer created\n");
 
   if (!SAGE_ApolloCore()) {
     printf("Apollo/Vampire 68080 AMMX support is required\n");
@@ -796,7 +863,7 @@ BOOL initDemo(void) {
   }
 
   demo.ammx_column_buffer = (UBYTE *)SAGE_AllocAlignMem(
-    (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT, 8
+    (ULONG)MAIN_LAYER_MAX_WIDTH * MAIN_LAYER_MAX_HEIGHT, 8
   );
   if (demo.ammx_column_buffer == NULL) {
     printf("Unable to allocate AMMX column buffer: %s\n",
@@ -806,7 +873,7 @@ BOOL initDemo(void) {
     return FALSE;
   }
   logMessage("68080 AMMX renderer ready (%lu-byte column buffer)\n",
-             (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT);
+             (ULONG)MAIN_LAYER_MAX_WIDTH * MAIN_LAYER_MAX_HEIGHT);
 
   if (!loadMap(&demo.map, file_map_index)) {
     return FALSE;
@@ -849,6 +916,9 @@ void runDemo(void) {
       logMessage("first frame: input actions begin\n");
     }
     handleInputActions();
+    if (input.quit_requested) {
+      break;
+    }
     updateRenderControls();
     if (first_frame) {
       logMessage("first frame: player update begin\n");
