@@ -1,0 +1,23 @@
+{
+    "configurations": [
+        {
+            "name": "Amiga68k GCC",
+            "includePath": [
+                "${workspaceFolder}/include/SAGE/include",
+                "D:/SDK/amiga-gcc/m68k-amigaos/ndk-include",
+                "${workspaceFolder}/include/LibInclude"
+            ],
+            "defines": [
+                "__AMIGA__",
+                "_SAGE_DEBUG_MODE_=0",
+                "_SAGE_SAFE_MODE_=0",
+                "PI=3.14159265358979323846"
+            ],
+            "compilerPath": "D:/SDK/amiga-gcc/bin/m68k-amigaos-gcc.exe",
+            "compilerArgs": ["-m68060", "-m68881", "-noixemul"],
+            "cStandard": "gnu89",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}

@@ -1,0 +1,9 @@
+build/
+*.o
+*.map
+*.lst
+*~
+*.bak
+*.tmp
+Thumbs.db
+.DS_Store
