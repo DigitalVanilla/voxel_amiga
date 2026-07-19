@@ -1,6 +1,6 @@
 param(
     [string]$MapDirectory = "maps",
-    [int[]]$Indexes = @(0)
+    [int[]]$Indexes = 0..29
 )
 
 $ErrorActionPreference = "Stop"
