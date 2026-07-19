@@ -30,7 +30,11 @@ int HORIZONTAL_DIVISIONS = 1;
 #define MAP_PALETTE_FILENAME       "maps/map%d.palette.raw"
 #define MAP_DATA_SIZE              ((ULONG)MAP_N * (ULONG)MAP_N)
 #define MAP_PALETTE_SIZE           (SSCR_MAXCOLORS * 3)
-int file_map_index = 0;
+#define MAP_INDEX_MIN              0
+#define MAP_INDEX_MAX              29
+#define MAP_BANK_SIZE              10
+int file_map_index = MAP_INDEX_MIN;
+int current_map_bank = 0;
 
 #define KEY_COUNT                    128
 
@@ -69,10 +73,6 @@ int file_map_index = 0;
 #define HORIZONTAL_DIVISIONS_MIN     1
 #define HORIZONTAL_DIVISIONS_MAX     4
 
-#define RENDERER_FAST_C              0
-#define RENDERER_AMMX_080            1
-#define RENDERER_REFERENCE_C         2
-
 typedef struct {
   UBYTE *height_pixels;
   UBYTE *color_pixels;
@@ -93,7 +93,6 @@ typedef struct {
   UWORD fps_frames;
   UWORD fps_value;
   UBYTE *ammx_column_buffer;
-  BOOL ammx_renderer_ready;
   map_data_t map;
 } demo_state_t;
 
@@ -132,7 +131,6 @@ voxel_render_stats_t render_stats;
 
 BOOL isNightMode = FALSE;
 BOOL isDebugMode = FALSE;
-int rendererMode = RENDERER_FAST_C;
 
 ULONG daymode_colormap[SSCR_MAXCOLORS];
 ULONG nightmode_colormap[SSCR_MAXCOLORS];
@@ -164,16 +162,6 @@ void daymode() {
   SAGE_RefreshColors(0,256);
 }
 
-const char *rendererName(int mode) {
-  if (mode == RENDERER_AMMX_080) {
-    return "080+AMMX";
-  }
-  if (mode == RENDERER_REFERENCE_C) {
-    return "REFERENCE C";
-  }
-  return "FAST C";
-}
-
 void visualDebug(void) {
   SAGE_PrintFText(10, 10, "fps:%d, Z_FAR: %.0f, SCALE: %.0f", demo.fps_value, Z_FAR, SCALE_FACTOR);
   SAGE_PrintFText(10, 21, "DELTA_Z: %.3f, H_DIVISIONS: %d", START_DELTA_Z, HORIZONTAL_DIVISIONS);
@@ -183,9 +171,9 @@ void visualDebug(void) {
                   render_stats.spans, render_stats.pixels);
   SAGE_PrintFText(10, 54, "TERRAIN:%luus COMPOSE:%luus",
                   demo.terrain_time_us, demo.compose_time_us);
-  SAGE_PrintFText(10, 65, "PRESENT:%luus RENDER:%s",
-                  demo.present_time_us,
-                  rendererName(rendererMode));
+  SAGE_PrintFText(10, 65, "PRESENT:%luus RENDER:080+AMMX",
+                  demo.present_time_us);
+  SAGE_PrintFText(10, 76, "MAP:%d BANK:%d", file_map_index, current_map_bank);
 }
 
 // ******************************************
@@ -216,6 +204,44 @@ BOOL isKeyHeld(UWORD code) {
 
 BOOL wasKeyPressed(UWORD code) {
   return code < KEY_COUNT && input.pressed[code];
+}
+
+BOOL isShiftHeld(void) {
+  return isKeyHeld(SKEY_EN_SHIFT) || isKeyHeld(SKEY_EN_RSHIFT);
+}
+
+int pressedDigit(void) {
+  if (wasKeyPressed(SKEY_EN_0)) {
+    return 0;
+  }
+  if (wasKeyPressed(SKEY_EN_1)) {
+    return 1;
+  }
+  if (wasKeyPressed(SKEY_EN_2)) {
+    return 2;
+  }
+  if (wasKeyPressed(SKEY_EN_3)) {
+    return 3;
+  }
+  if (wasKeyPressed(SKEY_EN_4)) {
+    return 4;
+  }
+  if (wasKeyPressed(SKEY_EN_5)) {
+    return 5;
+  }
+  if (wasKeyPressed(SKEY_EN_6)) {
+    return 6;
+  }
+  if (wasKeyPressed(SKEY_EN_7)) {
+    return 7;
+  }
+  if (wasKeyPressed(SKEY_EN_8)) {
+    return 8;
+  }
+  if (wasKeyPressed(SKEY_EN_9)) {
+    return 9;
+  }
+  return -1;
 }
 
 void releaseMap(map_data_t *map) {
@@ -316,6 +342,49 @@ BOOL loadMap(map_data_t *map, int map_index) {
              map_index, MAP_DATA_SIZE * 2 + MAP_PALETTE_SIZE,
              loaded.maximum_height);
   return TRUE;
+}
+
+void selectMapBank(int bank) {
+  if (bank < 0 || bank > MAP_INDEX_MAX / MAP_BANK_SIZE) {
+    return;
+  }
+  if (current_map_bank != bank) {
+    current_map_bank = bank;
+    logMessage("map bank %d selected (%d-%d)\n",
+               current_map_bank,
+               current_map_bank * MAP_BANK_SIZE,
+               current_map_bank * MAP_BANK_SIZE + MAP_BANK_SIZE - 1);
+  }
+}
+
+void requestMapLoad(int map_index) {
+  int old_map_index;
+
+  if (map_index < MAP_INDEX_MIN) {
+    map_index = MAP_INDEX_MAX;
+  } else if (map_index > MAP_INDEX_MAX) {
+    map_index = MAP_INDEX_MIN;
+  }
+  if (map_index == file_map_index) {
+    logMessage("map %d already active\n", map_index);
+    return;
+  }
+
+  old_map_index = file_map_index;
+  logMessage("loading map %d\n", map_index);
+  if (!loadMap(&demo.map, map_index)) {
+    logMessage("map %d load failed, keeping map %d\n",
+               map_index, old_map_index);
+    SAGE_SetError(SERR_NO_ERROR);
+    return;
+  }
+
+  file_map_index = map_index;
+  current_map_bank = file_map_index / MAP_BANK_SIZE;
+  if (isNightMode) {
+    nightmode();
+  }
+  logMessage("map %d ready\n", file_map_index);
 }
 
 float clampFloat(float value, float minimum, float maximum) {
@@ -456,6 +525,8 @@ void enableProfileTimer(void) {
 }
 
 void handleInputActions(void) {
+  int digit;
+
   if (wasKeyPressed(SKEY_EN_N)) {
     isNightMode = !isNightMode;
     if (isNightMode) {
@@ -479,20 +550,24 @@ void handleInputActions(void) {
     }
   }
 
-  if (wasKeyPressed(SKEY_EN_R)) {
-    if (demo.ammx_renderer_ready) {
-      rendererMode++;
-      if (rendererMode > RENDERER_REFERENCE_C) {
-        rendererMode = RENDERER_FAST_C;
-      }
-    } else {
-      rendererMode = rendererMode == RENDERER_FAST_C
-        ? RENDERER_REFERENCE_C : RENDERER_FAST_C;
-    }
-    logMessage("renderer switched to %s\n",
-               rendererName(rendererMode));
+  if (wasKeyPressed(SKEY_EN_F1)) {
+    selectMapBank(0);
+  }
+  if (wasKeyPressed(SKEY_EN_F2)) {
+    selectMapBank(1);
+  }
+  if (wasKeyPressed(SKEY_EN_F3)) {
+    selectMapBank(2);
   }
 
+  if (wasKeyPressed(SKEY_EN_M)) {
+    requestMapLoad(file_map_index + (isShiftHeld() ? -1 : 1));
+  }
+
+  digit = pressedDigit();
+  if (digit >= 0) {
+    requestMapLoad(current_map_bank * MAP_BANK_SIZE + digit);
+  }
 }
 
 // ******************************************
@@ -547,24 +622,13 @@ BOOL drawVoxelTerrain(BOOL trace_first_frame) {
   params.clear_color = 0xff;
   params.column_buffer = demo.ammx_column_buffer;
   if (trace_first_frame) {
-    logMessage("first frame: %s renderer begin\n",
-               rendererName(rendererMode));
+    logMessage("first frame: AMMX renderer begin\n");
   }
-  if (rendererMode == RENDERER_AMMX_080) {
-    if (!demo.ammx_renderer_ready ||
-        !VoxelRenderFastAMMX(&params, &render_stats)) {
-      return FALSE;
-    }
-  } else if (rendererMode == RENDERER_REFERENCE_C) {
-    if (!VoxelRenderC(&params, &render_stats)) {
-      return FALSE;
-    }
-  } else if (!VoxelRenderFastC(&params, &render_stats)) {
+  if (!VoxelRenderAMMX(&params, &render_stats)) {
     return FALSE;
   }
   if (trace_first_frame) {
-    logMessage("first frame: %s renderer complete\n",
-               rendererName(rendererMode));
+    logMessage("first frame: AMMX renderer complete\n");
   }
   return TRUE;
 }
@@ -725,21 +789,24 @@ BOOL initDemo(void) {
   demo.layer_ready = TRUE;
   logMessage("voxel layer created\n");
 
-  if (SAGE_ApolloCore()) {
-    demo.ammx_column_buffer = (UBYTE *)SAGE_AllocAlignMem(
-      (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT, 8
-    );
-    if (demo.ammx_column_buffer != NULL) {
-      demo.ammx_renderer_ready = TRUE;
-      logMessage("68080 AMMX renderer ready (%lu-byte column buffer)\n",
-                 (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT);
-    } else {
-      logMessage("68080 detected, AMMX column buffer unavailable\n");
-      SAGE_SetError(SERR_NO_ERROR);
-    }
-  } else {
-    logMessage("68080 not detected, AMMX renderer disabled\n");
+  if (!SAGE_ApolloCore()) {
+    printf("Apollo/Vampire 68080 AMMX support is required\n");
+    logMessage("68080 not detected, AMMX-only build cannot run\n");
+    return FALSE;
   }
+
+  demo.ammx_column_buffer = (UBYTE *)SAGE_AllocAlignMem(
+    (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT, 8
+  );
+  if (demo.ammx_column_buffer == NULL) {
+    printf("Unable to allocate AMMX column buffer: %s\n",
+           SAGE_GetErrorString());
+    logMessage("AMMX column buffer unavailable: %s\n",
+               SAGE_GetErrorString());
+    return FALSE;
+  }
+  logMessage("68080 AMMX renderer ready (%lu-byte column buffer)\n",
+             (ULONG)MAIN_LAYER_WIDTH * MAIN_LAYER_HEIGHT);
 
   if (!loadMap(&demo.map, file_map_index)) {
     return FALSE;
@@ -808,7 +875,6 @@ void shutdownDemo(void) {
   if (demo.ammx_column_buffer != NULL) {
     SAGE_FreeMem(demo.ammx_column_buffer);
     demo.ammx_column_buffer = NULL;
-    demo.ammx_renderer_ready = FALSE;
     logMessage("AMMX column buffer released\n");
   }
   releaseMap(&demo.map);

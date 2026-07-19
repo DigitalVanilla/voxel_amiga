@@ -36,8 +36,6 @@ typedef struct {
   ULONG pixels;
 } voxel_render_stats_t;
 
-BOOL VoxelRenderC(const voxel_render_params_t *, voxel_render_stats_t *);
-BOOL VoxelRenderFastC(const voxel_render_params_t *, voxel_render_stats_t *);
-BOOL VoxelRenderFastAMMX(const voxel_render_params_t *, voxel_render_stats_t *);
+BOOL VoxelRenderAMMX(const voxel_render_params_t *, voxel_render_stats_t *);
 
 #endif

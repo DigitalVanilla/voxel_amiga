@@ -1,9 +1,11 @@
 ;------------------------------------------------------------------------------
 ; voxel_renderer_ammx.asm
 ;
-; Exact 8-bit column-major to row-major transpose for the Apollo 68080.
-; The C renderer writes vertical terrain spans contiguously into a scratch
-; buffer.  This routine transposes 8x8 byte tiles into the SAGE bitmap.
+; AMMX helpers for the Apollo 68080 voxel renderer.
+;
+; The ray routine renders vertical terrain spans contiguously into a scratch
+; column buffer.  The transpose routine then converts 8x8 byte tiles into the
+; SAGE bitmap.
 ;
 ; in a0.l  column-major source (source[x * height + y])
 ; in a1.l  row-major destination

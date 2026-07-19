@@ -8,7 +8,6 @@ GCC_TARGET = $(GCC_ROOT)/m68k-amigaos
 CC = "$(GCC_ROOT)/bin/m68k-amigaos-gcc.exe"
 AS = "$(GCC_ROOT)/bin/vasmm68k_mot.exe"
 MKDIR_P = mkdir -p
-HOST_CC = D:/SDK/w64devkit/bin/gcc.exe
 
 export PATH := $(GCC_ROOT)/bin;$(PATH)
 
@@ -19,15 +18,11 @@ OBJ_DIR = build/obj
 BIN_DIR = build/bin
 PACKAGE_DIR = build/package/voxel_amiga
 TARGET = $(BIN_DIR)/voxel_amiga
-HOST_DIR = build/host
-HOST_RENDERER_TEST = $(HOST_DIR)/voxel_renderer_compare.exe
-HOST_AMMX_RENDERER_OBJ = $(HOST_DIR)/voxel_renderer_ammx.o
-VOXEL_AMMX_COBJ = $(OBJ_DIR)/voxel_renderer_ammx_080.o
 VOXEL_AMMX_ASMOBJ = $(OBJ_DIR)/voxel_renderer_ammx.o
-MAP_RUNTIME_FILES = \
-	maps/map0.height.raw \
-	maps/map0.color.raw \
-	maps/map0.palette.raw
+MAP_INDEXES = 0 1 2 3 4 5 6 7 8 9 \
+	10 11 12 13 14 15 16 17 18 19 \
+	20 21 22 23 24 25 26 27 28 29
+MAP_RUNTIME_FILES = $(foreach index,$(MAP_INDEXES),maps/map$(index).height.raw maps/map$(index).color.raw maps/map$(index).palette.raw)
 
 SAGE_CSRCS = $(addprefix $(SAGE_SRC_DIR)/, \
 	sage.c sage_logger.c sage_error.c sage_memory.c sage_thread.c \
@@ -44,8 +39,7 @@ SAGE_ASMSRCS = $(addprefix $(SAGE_SRC_DIR)/, \
 APP_OBJS = $(patsubst %.c,$(OBJ_DIR)/%.o,$(APP_CSRCS))
 SAGE_COBJS = $(patsubst $(SAGE_SRC_DIR)/%.c,$(OBJ_DIR)/sage_%.o,$(SAGE_CSRCS))
 SAGE_ASMOBJS = $(patsubst $(SAGE_SRC_DIR)/%.asm,$(OBJ_DIR)/sage_%.o,$(SAGE_ASMSRCS))
-OBJS = $(APP_OBJS) $(VOXEL_AMMX_COBJ) \
-	$(VOXEL_AMMX_ASMOBJ) \
+OBJS = $(APP_OBJS) $(VOXEL_AMMX_ASMOBJ) \
 	$(SAGE_COBJS) $(SAGE_ASMOBJS)
 
 SAGE_DEBUG ?= 0
@@ -62,10 +56,6 @@ CFLAGS = $(CPUFLAGS) -O2 -std=gnu89 \
 
 APP_CFLAGS = $(CFLAGS) -Wall -Wextra
 RENDERER_CFLAGS = $(APP_CFLAGS) -fomit-frame-pointer
-RENDERER_AMMX_CFLAGS = $(RENDERER_CFLAGS) \
-	-DVOXEL_RENDERER_AMMX_BUILD=1 \
-	-DVoxelRenderC=VoxelRenderC080AMMXUnused \
-	-DVoxelRenderFastC=VoxelRenderFastAMMX
 
 # GCC 6.5.0b crashes internally on sage_screen.c at -O2.
 SCREEN_CFLAGS = $(filter-out -O2,$(CFLAGS)) -O0
@@ -74,11 +64,11 @@ AMMX_ASFLAGS = -Fhunk -m68080
 LDFLAGS = $(CPUFLAGS) -noixemul
 LDLIBS = -lm -lamiga
 
-.PHONY: all clean rebuild package convert-maps test-renderer
+.PHONY: all clean rebuild package convert-maps
 
 all: package
 
-$(OBJ_DIR) $(BIN_DIR) $(PACKAGE_DIR) $(HOST_DIR):
+$(OBJ_DIR) $(BIN_DIR) $(PACKAGE_DIR):
 	$(MKDIR_P) $@
 
 $(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
@@ -88,9 +78,6 @@ $(OBJ_DIR)/voxel.o: voxel_renderer.h
 
 $(OBJ_DIR)/voxel_renderer.o: voxel_renderer.c voxel_renderer.h | $(OBJ_DIR)
 	$(CC) $(RENDERER_CFLAGS) -c $< -o $@
-
-$(VOXEL_AMMX_COBJ): voxel_renderer.c voxel_renderer.h | $(OBJ_DIR)
-	$(CC) $(RENDERER_AMMX_CFLAGS) -c $< -o $@
 
 $(VOXEL_AMMX_ASMOBJ): voxel_renderer_ammx.asm | $(OBJ_DIR)
 	$(AS) $(AMMX_ASFLAGS) $< -o $@
@@ -122,27 +109,6 @@ package: $(TARGET) $(MAP_RUNTIME_FILES)
 
 convert-maps:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/convert_maps.ps1
-
-$(HOST_AMMX_RENDERER_OBJ): voxel_renderer.c voxel_renderer.h | $(HOST_DIR)
-	$(HOST_CC) -O2 -std=gnu11 -fno-fast-math -Wall -Wextra \
-		-Wno-implicit-fallthrough \
-		-DVOXEL_RENDERER_AMMX_BUILD=1 -DVOXEL_AMMX_HOST_TEST=1 \
-		-DVoxelRenderC=VoxelRenderCColumnUnused \
-		-DVoxelRenderFastC=VoxelRenderFastAMMX \
-		-I. -I$(SAGE_DIR)/include -I$(GCC_TARGET)/ndk-include \
-		-idirafter include/LibInclude -c voxel_renderer.c -o $@
-
-$(HOST_RENDERER_TEST): tests/voxel_renderer_compare.c voxel_renderer.c \
-		voxel_renderer.h $(HOST_AMMX_RENDERER_OBJ) | $(HOST_DIR)
-	$(HOST_CC) -O2 -std=gnu11 -fno-fast-math -Wall -Wextra \
-		-Wno-implicit-fallthrough \
-		-I. -I$(SAGE_DIR)/include -I$(GCC_TARGET)/ndk-include \
-		-idirafter include/LibInclude \
-		tests/voxel_renderer_compare.c voxel_renderer.c \
-		$(HOST_AMMX_RENDERER_OBJ) -o $@
-
-test-renderer: $(HOST_RENDERER_TEST)
-	$(HOST_RENDERER_TEST)
 
 clean:
 	rm -rf build
